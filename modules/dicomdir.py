@@ -2,10 +2,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
 from typing import Final, Optional
+from uuid import uuid4
 from zipfile import ZipFile
 import pydicom
 import streamlit as st
-from .common import VIDEO_CONTRAST, VIDEO_FPS, VIDEO_WIDTH, FileHandler, calc_age, convert_dicom_to_mp4
+from .common import (
+    VIDEO_CONTRAST,
+    VIDEO_FPS,
+    VIDEO_WIDTH,
+    FileHandler,
+    calc_age,
+    convert_dicom_to_mp4,
+)
 
 
 class DicomdirFileNotFoundError(Exception):
@@ -50,10 +58,12 @@ class Patient:
 
 class DicomdirFileSet:
     filename: str
+    load_id: str
     patients: list[Patient]
 
     def __init__(self, filename: str):
         self.filename = filename
+        self.load_id = uuid4().hex
         self.patients = []
 
     def get_patient_names(self) -> list[str]:
@@ -79,6 +89,7 @@ class DicomdirFileSet:
             (patient for patient in self.patients if patient.name == patient_name), None
         )
         studies = [study.description for study in patient.studies] if patient else []
+        print(studies)
         return studies
 
     def get_attachments(self, name, study_descr) -> dict:
@@ -124,12 +135,9 @@ class DicomdirHandler(FileHandler):
     @classmethod
     def load(cls, upload) -> None:
 
-        if "dicomdir_patient_name" in st.session_state:
-            del st.session_state["dicomdir_patient_name"]
-        if "dicomdir_study" in st.session_state:
-            del st.session_state["dicomdir_study"]
-        if "dicomdir_attachments" in st.session_state:
-            del st.session_state["dicomdir_attachments"]
+        for key in list(st.session_state.keys()):
+            if key.startswith("dicomdir"):
+                del st.session_state[key]
 
         with ZipFile(BytesIO(upload.getvalue())) as z:
 
@@ -254,18 +262,15 @@ class DicomdirHandler(FileHandler):
 
         show_dialog()
 
-
     @classmethod
     def __rerender_images_to_video(cls) -> None:
         cls.__convert_images_to_video(st.session_state["dicomdir_video_contrast"])
 
-
     @classmethod
     def show(cls) -> None:
-
-        st.title(f"{st.session_state["dicomdir"].filename}", anchor=False)
-        # st.write("Test")
-        st.space()
+        dicomdir = st.session_state["dicomdir"]
+        if not hasattr(dicomdir, "load_id"):
+            dicomdir.load_id = uuid4().hex
 
         col1, col2 = st.columns([1, 1])
 
@@ -297,14 +302,17 @@ class DicomdirHandler(FileHandler):
                         st.write(f"**Gender:** {patient_info.get('sex', 'N/A')}")
                 if patient_name:
                     st.markdown("##### :material/experiment: Study", anchors=False)
+                    studylist = st.session_state["dicomdir"].get_studies_descr_by_name(
+                        patient_name
+                    )
                     study_descr = st.selectbox(
                         "Study",
-                        st.session_state["dicomdir"].get_studies_descr_by_name(
-                            patient_name
-                        ),
+                        studylist,
                         width=300 + 60,
-                        index=0,
-                        key=f"dicomdir_study",
+                        key=(
+                            f"dicomdir_study_"
+                            f"{dicomdir.load_id}_{patient_name}"
+                        ),
                         label_visibility="collapsed",
                     )
                     st.markdown("##### :material/settings: Settings", anchors=False)
@@ -312,9 +320,24 @@ class DicomdirHandler(FileHandler):
                         "Video",
                         width=300 + 60,
                     ):
-                        st.selectbox("Video Width", [200, VIDEO_WIDTH, 600, 800], index=1, key="dicomdir_video_width")
-                        st.slider("Contrast", min_value=0.1, max_value=2.0, value=VIDEO_CONTRAST, step=0.1, key="dicomdir_video_contrast", on_change=cls.__rerender_images_to_video)
-                        st.button("Reset to Default", on_click=cls.__reset_video_settings)
+                        st.selectbox(
+                            "Video Width",
+                            [200, VIDEO_WIDTH, 600, 800],
+                            index=1,
+                            key="dicomdir_video_width",
+                        )
+                        st.slider(
+                            "Contrast",
+                            min_value=0.1,
+                            max_value=2.0,
+                            value=VIDEO_CONTRAST,
+                            step=0.1,
+                            key="dicomdir_video_contrast",
+                            on_change=cls.__rerender_images_to_video,
+                        )
+                        st.button(
+                            "Reset to Default", on_click=cls.__reset_video_settings
+                        )
         with col2:
             if patient_name and study_descr:
                 attachments = st.session_state["dicomdir"].get_attachments(
@@ -344,13 +367,18 @@ class DicomdirHandler(FileHandler):
             for name, content in series_dict.items():
                 if content["video"]:
                     with st.container(border=True, width="content"):
+                        if name and name != "N/A":
                             st.markdown(f"##### {name}", anchors=False)
-                            st.video(
-                                content["video"], width=st.session_state["dicomdir_video_width"], format="video/mp4", start_time=0
-                            )
+                        st.video(
+                            content["video"],
+                            width=st.session_state["dicomdir_video_width"],
+                            format="video/mp4",
+                            start_time=0,
+                        )
 
     @classmethod
     def __reset_video_settings(cls) -> None:
         st.session_state["dicomdir_video_width"] = VIDEO_WIDTH
         st.session_state["dicomdir_video_contrast"] = VIDEO_CONTRAST
         cls.__rerender_images_to_video()
+

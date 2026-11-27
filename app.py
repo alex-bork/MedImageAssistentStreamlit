@@ -79,6 +79,9 @@ with st.sidebar:
         if files is not None:
             with st.spinner("Processing the uploaded file..."):
                 try:
+                    for key in list(st.session_state.keys()):
+                        if key.startswith("dicomdir"):
+                            del st.session_state[key]
                     load_file(files)
                 except Exception as ex:
                     del st.session_state["filehandler"]
@@ -87,7 +90,7 @@ with st.sidebar:
             # st.success("File loaded successfully.")
         else:
             st.error("No file selected.")
-    st.space()
+    # st.space()
     # if "filehandler" in st.session_state and st.session_state["filehandler"]:
     #     if st.button(
     #         "Process by AI",
@@ -107,3 +110,5 @@ if (
         st.session_state["app_filetype_loaded"]
     )
     st.session_state["filehandler"].show()
+else:
+    st.info("No files loaded.")

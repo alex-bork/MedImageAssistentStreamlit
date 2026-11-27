@@ -27,6 +27,10 @@ class PngHandler(FileHandler):
     @classmethod
     def load(cls, uploads) -> None:
 
+        for key in list(st.session_state.keys()):
+            if key.startswith("png"):
+                del st.session_state[key]
+
         series = Series()
 
         for upload in uploads:

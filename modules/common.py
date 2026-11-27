@@ -13,7 +13,6 @@ from pydicom.pixel_data_handlers.util import (
 )
 from PIL import Image, ImageEnhance
 
-
 VIDEO_WIDTH: Final[int] = 400
 VIDEO_FPS: Final[int] = 3
 VIDEO_CONTRAST: Final[float] = 0.7
@@ -30,7 +29,7 @@ class FileHandler(ABC):
     @abstractmethod
     def show(cls) -> None:
         pass
-    
+
 
 def convert_dicom_to_mp4(
     files: list[pydicom.Dataset],
@@ -49,6 +48,9 @@ def convert_dicom_to_mp4(
             frame = apply_modality_lut(frame, ds)
             frame = apply_voi_lut(frame, ds)
         except Exception:
+            import traceback
+
+            traceback.print_exc()
             continue
 
         frame = frame.astype(np.float32)
@@ -64,10 +66,17 @@ def convert_dicom_to_mp4(
         frame = np.clip((frame - 0.5) * contrast + 0.5, 0.0, 1.0)
         frame = (frame * 255).astype(np.uint8)
 
-        # grayscale -> RGB
-        frame = np.stack([frame] * 3, axis=-1)
+        if frame.ndim == 2:
+            frame = np.stack([frame] * 3, axis=-1)
+            frames.append(frame)
 
-        frames.append(frame)
+        elif frame.ndim == 3:
+            if frame.shape[-1] == 3:
+                frames.append(frame)
+            else:
+                for single_frame in frame:
+                    rgb = np.stack([single_frame] * 3, axis=-1)
+                    frames.append(rgb)
 
     if not frames:
         raise ValueError("No valid DICOM frames")
@@ -193,8 +202,7 @@ def retrieve_images_from_zip(
 
     if filetype not in extensions:
         raise ValueError(
-            f"Unsupported filetype '{filetype}'. "
-            f"Supported: {', '.join(extensions)}"
+            f"Unsupported filetype '{filetype}'. " f"Supported: {', '.join(extensions)}"
         )
 
     result: list[File] = []
@@ -207,10 +215,7 @@ def retrieve_images_from_zip(
             data = zip_file.read(name)
             lower_name = name.lower()
 
-            if any(
-                lower_name.endswith(ext)
-                for ext in extensions[filetype]
-            ):
+            if any(lower_name.endswith(ext) for ext in extensions[filetype]):
                 result.append(
                     File(
                         name=name.rsplit("/", 1)[-1],
@@ -226,13 +231,8 @@ def retrieve_images_from_zip(
                         stop_before_pixels=True,
                     )
 
-                    result.append(
-                        File(
-                            name=name.rsplit("/", 1)[-1],
-                            data=data                       
-                        )
-                    )
-                except (InvalidDicomError, OSError):
+                    result.append(File(name=name.rsplit("/", 1)[-1], data=data))
+                except InvalidDicomError, OSError:
                     pass
 
     return result

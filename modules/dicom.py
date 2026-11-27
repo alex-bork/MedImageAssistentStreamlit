@@ -36,6 +36,11 @@ class DicomHandler(FileHandler):
 
     @classmethod
     def load(cls, upload) -> None:
+
+        for key in list(st.session_state.keys()):
+            if key.startswith("dicom"):
+                del st.session_state[key]
+
         series = Series()
 
         for file in upload:
@@ -68,9 +73,14 @@ class DicomHandler(FileHandler):
 
         st.session_state["dicom"] = series
 
+        images = cls.__dicom_files_to_images(
+                [image.data for image in series.images])
+
+        if not images:
+            raise ValueError("No images for converting to video found.")
+
         st.session_state["dicom"].video = convert_image_to_video(
-            images=cls.__dicom_files_to_images(
-                [image.data for image in series.images]),
+            images=images,
                 fps=VIDEO_FPS,
                 contrast=VIDEO_CONTRAST,
         )
@@ -122,6 +132,11 @@ class DicomHandler(FileHandler):
             ds = pydicom.dcmread(BytesIO(dicom_bytes))
 
             pixels = ds.pixel_array.astype(np.float32)
+
+            if pixels.ndim == 4:
+                pixels = pixels[:, :, 0, :]
+            elif pixels.ndim == 3 and pixels.shape[-1] != 3:
+                pixels = pixels[0]
 
             pixels -= pixels.min()
 
